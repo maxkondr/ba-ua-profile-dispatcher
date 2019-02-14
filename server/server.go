@@ -110,7 +110,7 @@ func (s *Server) SetConfig(newConfig uaconfig.UaProfileDispatcherConfig) {
 	s.config = newConfig
 }
 
-func (s *Server) createClient(addr string) (uaProfile.UaProfileClient, *grpc.ClientConn, error) {
+func (s Server) createClient(addr string) (uaProfile.UaProfileClient, *grpc.ClientConn, error) {
 	conn, err := grpc.Dial(addr, grpcDialOptions...)
 	if err != nil {
 		return nil, nil, err
@@ -120,7 +120,7 @@ func (s *Server) createClient(addr string) (uaProfile.UaProfileClient, *grpc.Cli
 }
 
 // -------------------------------------------------------------------------------------
-func (s *Server) callUaProfileGetTypeInfo(ctx context.Context, uaTypeConfig uaconfig.UaProfileServiceConfig, ch chan typeInfoChCb, wg *sync.WaitGroup) {
+func (s Server) callUaProfileGetTypeInfo(ctx context.Context, uaTypeConfig uaconfig.UaProfileServiceConfig, ch chan typeInfoChCb, wg *sync.WaitGroup) {
 	logger := getLogger(ctx)
 
 	defer wg.Done()
@@ -139,7 +139,7 @@ func (s *Server) callUaProfileGetTypeInfo(ctx context.Context, uaTypeConfig uaco
 }
 
 // GetUaTypeList interface
-func (s *Server) GetUaTypeList(ctx context.Context, _ *empty.Empty) (*uaProfileDispatcher.GetUaTypeListResponse, error) {
+func (s Server) GetUaTypeList(ctx context.Context, _ *empty.Empty) (*uaProfileDispatcher.GetUaTypeListResponse, error) {
 	logger := getLogger(ctx)
 	logger.Info("Received request")
 
@@ -185,7 +185,7 @@ func (s *Server) GetUaTypeList(ctx context.Context, _ *empty.Empty) (*uaProfileD
 // -------------------------------------------------------------------------------------
 
 // GetUaProfileMetaInfo interface
-func (s *Server) GetUaProfileMetaInfo(ctx context.Context, req *uaProfileDispatcher.GetUaProfileMetaInfoRequest) (*uaProfileDispatcher.GetUaProfileMetaInfoResponse, error) {
+func (s Server) GetUaProfileMetaInfo(ctx context.Context, req *uaProfileDispatcher.GetUaProfileMetaInfoRequest) (*uaProfileDispatcher.GetUaProfileMetaInfoResponse, error) {
 	logger := getLogger(ctx)
 	logger.Infof("Received request=%v", req)
 
@@ -223,7 +223,7 @@ func (s *Server) GetUaProfileMetaInfo(ctx context.Context, req *uaProfileDispatc
 // -------------------------------------------------------------------------------------
 
 // GenerateUaProfile interface
-func (s *Server) GenerateUaProfile(ctx context.Context, req *uaProfileDispatcher.GenerateUaProfileRequest) (*uaProfile.GenerateUaProfileResponse, error) {
+func (s Server) GenerateUaProfile(ctx context.Context, req *uaProfileDispatcher.GenerateUaProfileRequest) (*uaProfile.GenerateUaProfileResponse, error) {
 	logger := getLogger(ctx)
 	logger.Infof("Received request=%v", req.Options.UaProfileData)
 

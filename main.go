@@ -39,8 +39,7 @@ func initTracerZipkin(zipkinURL string) {
 	var err error
 	zipkinCollector, err = zipkinot.NewHTTPCollector(zipkinURL)
 	if err != nil {
-		logger.Error("Error during zipkin HTTP Collection creation, err=", err.Error())
-		os.Exit(1)
+		logger.Fatal("Error during zipkin HTTP Collection creation, err=", err.Error())
 	}
 
 	myName := os.Getenv("MY_POD_NAME")
@@ -56,8 +55,7 @@ func initTracerZipkin(zipkinURL string) {
 	recorder := zipkinot.NewRecorder(zipkinCollector, debug, hostPort, serviceName)
 	zipkinTracer, err := zipkinot.NewTracer(recorder)
 	if err != nil {
-		logger.Error("Error during zipkin tracer creation, err=", err.Error())
-		os.Exit(1)
+		logger.Fatal("Error during zipkin tracer creation, err=", err.Error())
 	}
 	opentracing.SetGlobalTracer(zipkinTracer)
 }
