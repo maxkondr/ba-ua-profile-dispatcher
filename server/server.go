@@ -125,7 +125,6 @@ func (s Server) createClient(addr string) (uaProfile.UaProfileClient, *grpc.Clie
 func (s Server) callUaProfileGetTypeInfo(ctx context.Context, uaTypeConfig uaconfig.UaProfileServiceConfig, ch chan typeInfoChCb, wg *sync.WaitGroup) {
 	logger := getLogger(ctx)
 
-	defer wg.Done()
 	client, conn, err := s.createClient(uaTypeConfig.URL)
 
 	if err != nil {
@@ -155,10 +154,8 @@ func (s Server) GetUaTypeList(ctx context.Context, _ *empty.Empty) (*uaProfileDi
 
 	var wg sync.WaitGroup
 	for _, uaProfileServiceConfig := range uaProfileServiceList {
-		wg.Add(1)
 		go s.callUaProfileGetTypeInfo(ctx, uaProfileServiceConfig, ch, &wg)
 	}
-	wg.Wait()
 
 	toReturn := &uaProfileDispatcher.GetUaTypeListResponse{}
 	for range uaProfileServiceList {
