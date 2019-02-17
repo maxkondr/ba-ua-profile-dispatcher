@@ -1,6 +1,7 @@
 package uaProfileDispatcherImpl
 
 import (
+	"io"
 	"sync"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/tracing/opentracing"
 
 	context "golang.org/x/net/context"
+	"google.golang.org/genproto/googleapis/api/httpbody"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
@@ -223,34 +225,69 @@ func (s Server) GetUaProfileMetaInfo(ctx context.Context, req *uaProfileDispatch
 // -------------------------------------------------------------------------------------
 
 // GenerateUaProfile interface
-func (s Server) GenerateUaProfile(ctx context.Context, req *uaProfileDispatcher.GenerateUaProfileRequest) (*uaProfile.GenerateUaProfileResponse, error) {
-	logger := getLogger(ctx)
+func (s Server) GenerateUaProfile(req *uaProfileDispatcher.GenerateUaProfileRequest, stream uaProfileDispatcher.UaProfileDispatcher_GenerateUaProfileServer) error {
+	logger := getLogger(stream.Context())
 	logger.Infof("Received request=%v", req.Options.UaProfileData)
 
 	uaProfileService, ok := s.config.GetUaProfileServiceByID(req.IUaType)
 	if !ok {
 		logger.Warnf("Service with i_ua_type=%d is not found", req.IUaType)
-		return nil, uaerrors.NoUaType
+		return uaerrors.NoUaType
 	}
 
 	client, conn, err := s.createClient(uaProfileService.URL)
 	if err != nil {
 		logger.Warnf("Can't create client to service=%s err=%s", uaProfileService.URL, err.Error())
-		return nil, uaerrors.ServiceUnavailable
+		return uaerrors.ServiceUnavailable
 	}
 	defer conn.Close()
 
-	ctx = newRPCMetaDataContext(ctx)
+	ctx := newRPCMetaDataContext(stream.Context())
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	logger.Debug("Sending 'GenerateUaProfile' request to service=", uaProfileService.URL)
-	resp, err := client.GenerateUaProfile(ctx, &uaProfile.GenerateUaProfileRequest{UaProfileData: req.Options.UaProfileData})
+	clientStream, err := client.GenerateUaProfile(ctx, &uaProfile.GenerateUaProfileRequest{UaProfileData: req.Options.UaProfileData})
 
 	if err != nil {
 		logger.Warnf("Error during 'GenerateUaProfile' request processing from service=%s, err=%s", uaProfileService.URL, err.Error())
-		return nil, uaerrors.Internal
+		return uaerrors.Internal
 	}
 
-	return resp, nil
+	ch := make(chan *httpbody.HttpBody, 100)
+
+	go func(c chan<- *httpbody.HttpBody) {
+		for {
+			httpB, err := clientStream.Recv()
+			if err != nil {
+				if err == io.EOF {
+					logger.Info("Transfer finished successfully")
+					close(c)
+					return
+				}
+				logger.Error("Error has appeared during receiving data, err=", err.Error())
+				close(c)
+				return
+			}
+			c <- httpB
+		}
+	}(ch)
+
+	for {
+		select {
+		case <-ctx.Done():
+			// incoming request was canceled
+			logger.Warn("Request was terminated. Reason: ", ctx.Err())
+			return uaerrors.RequestTerminated
+		case httpB, ok := <-ch:
+			if !ok {
+				// no more data to transfer
+				return nil
+			}
+			if err = stream.Send(httpB); err != nil {
+				logger.Error("Error has appeared during profile transfer, err=", err.Error())
+				return uaerrors.Internal
+			}
+		}
+	}
 }
