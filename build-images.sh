@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-APP_NAME="ba-ua-profile-dispatcher"
+APP_NAME="ba-cpe-profile-dispatcher"
 
 IMAGE_NAME=maxkondr/$APP_NAME
 IMAGE_TEST_NAME=$IMAGE_NAME-test

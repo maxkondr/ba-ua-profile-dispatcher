@@ -1,17 +1,16 @@
-package uaProfileDispatcherImpl
+package cpeProfileDispatcherImpl
 
 import (
 	"io"
-	"sync"
 	"time"
 
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/grpc-ecosystem/go-grpc-middleware"
-	"github.com/maxkondr/ba-proto/uaProfile"
-	"github.com/maxkondr/ba-proto/uaProfileDispatcher"
+	"github.com/maxkondr/ba-proto/cpeProfile"
+	"github.com/maxkondr/ba-proto/cpeProfileDispatcher"
 
-	"github.com/maxkondr/ba-ua-profile-dispatcher/uaconfig"
-	"github.com/maxkondr/ba-ua-profile-dispatcher/uaerrors"
+	"github.com/maxkondr/ba-ua-profile-dispatcher/cpeconfig"
+	"github.com/maxkondr/ba-ua-profile-dispatcher/cpeerrors"
 	"github.com/sirupsen/logrus"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus/ctxlogrus"
@@ -45,31 +44,31 @@ func getLogger(context context.Context) *logrus.Entry {
 	return ctxlogrus.Extract(context)
 }
 
-// typeInfoChCb struct for keeping info about UA Type
+// typeInfoChCb struct for keeping info about CPE Type
 type typeInfoChCb struct {
-	uaTypeConfig uaconfig.UaProfileServiceConfig
-	uaTypeInfo   *uaProfile.UaTypeInfo
-	err          error
+	cpeTypeConfig cpeConfig.CpeProfileServiceConfig
+	cpeTypeInfo   *cpeProfile.CpeTypeInfo
+	err           error
 }
 
-// typeInfoChCb struct for keeping info about UA meta info
+// typeInfoChCb struct for keeping info about CPE meta info
 type metaInfoChCb struct {
-	uaTypeConfig uaconfig.UaProfileServiceConfig
-	uaMetaInfo   *uaProfile.UaProfileMetaInfo
-	err          error
+	cpeTypeConfig cpeConfig.CpeProfileServiceConfig
+	cpeMetaInfo   *cpeProfile.CpeProfileMetaInfo
+	err           error
 }
 
 // Server implementation
 type Server struct {
-	config  uaconfig.UaProfileDispatcherConfig
-	clients map[string]uaProfile.UaProfileClient
-	uaProfileDispatcher.UaProfileDispatcherServer
+	config  cpeConfig.CpeProfileDispatcherConfig
+	clients map[string]cpeProfile.CpeProfileClient
+	cpeProfileDispatcher.CpeProfileDispatcherServer
 }
 
 // NewServer creates server
-func NewServer(config uaconfig.UaProfileDispatcherConfig) *Server {
+func NewServer(config cpeConfig.CpeProfileDispatcherConfig) *Server {
 	s := Server{config: config}
-	s.clients = make(map[string]uaProfile.UaProfileClient)
+	s.clients = make(map[string]cpeProfile.CpeProfileClient)
 	return &s
 }
 
@@ -108,97 +107,112 @@ func merge(cs ...<-chan int) <-chan int {
 // -------------------------------------------------------------------------------------
 
 // SetConfig sets new config to server
-func (s *Server) SetConfig(newConfig uaconfig.UaProfileDispatcherConfig) {
+func (s *Server) SetConfig(newConfig cpeConfig.CpeProfileDispatcherConfig) {
 	s.config = newConfig
 }
 
-func (s Server) createClient(addr string) (uaProfile.UaProfileClient, *grpc.ClientConn, error) {
+func (s Server) createClient(addr string) (cpeProfile.CpeProfileClient, *grpc.ClientConn, error) {
 	conn, err := grpc.Dial(addr, grpcDialOptions...)
 	if err != nil {
 		return nil, nil, err
 	}
-	myC := uaProfile.NewUaProfileClient(conn)
+	myC := cpeProfile.NewCpeProfileClient(conn)
 	return myC, conn, nil
 }
 
 // -------------------------------------------------------------------------------------
-func (s Server) callUaProfileGetTypeInfo(ctx context.Context, uaTypeConfig uaconfig.UaProfileServiceConfig, ch chan typeInfoChCb, wg *sync.WaitGroup) {
+func (s Server) callCpeProfileGetTypeInfo(ctx context.Context, cpeTypeConfig cpeConfig.CpeProfileServiceConfig, dataCh chan typeInfoChCb, stopCh chan struct{}) {
 	logger := getLogger(ctx)
 
-	client, conn, err := s.createClient(uaTypeConfig.URL)
+	client, conn, err := s.createClient(cpeTypeConfig.URL)
 
 	if err != nil {
-		logger.Warnf("Can't create client to service=%s, err=%s", uaTypeConfig.URL, err.Error())
-		ch <- typeInfoChCb{uaTypeConfig, nil, err}
+		logger.Warnf("Can't create client to service=%s, err=%s", cpeTypeConfig.URL, err.Error())
+		select {
+		case <-stopCh:
+			// receiver can't accept result
+			return
+		case dataCh <- typeInfoChCb{cpeTypeConfig, nil, err}:
+		}
 		return
 	}
+
 	defer conn.Close()
 
-	logger.Debug("Sending 'GetUaTypeInfo' request to service=", uaTypeConfig.URL)
-	resp, err := client.GetUaTypeInfo(ctx, &empty.Empty{})
-	ch <- typeInfoChCb{uaTypeConfig, resp, err}
+	logger.Debug("Sending 'GetCpeTypeInfo' request to service=", cpeTypeConfig.URL)
+	resp, err := client.GetCpeTypeInfo(ctx, &empty.Empty{})
+	select {
+	case <-stopCh:
+		// receiver can't accept result
+		return
+	case dataCh <- typeInfoChCb{cpeTypeConfig, resp, err}:
+	}
+
 }
 
-// GetUaTypeList interface
-func (s Server) GetUaTypeList(ctx context.Context, _ *empty.Empty) (*uaProfileDispatcher.GetUaTypeListResponse, error) {
+// GetCpeTypeList interface
+func (s Server) GetCpeTypeList(ctx context.Context, _ *empty.Empty) (*cpeProfileDispatcher.GetCpeTypeListResponse, error) {
 	logger := getLogger(ctx)
 	logger.Info("Received request")
 
-	uaProfileServiceList := s.config.GetUaProfileServiceList()
-	ch := make(chan typeInfoChCb, len(uaProfileServiceList))
-	defer close(ch)
+	cpeProfileServiceList := s.config.GetCpeProfileServiceList()
+	dataCh := make(chan typeInfoChCb, len(cpeProfileServiceList))
+	stopCh := make(chan struct{})
+	// defer close(ch)
 
 	ctx = newRPCMetaDataContext(ctx)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	var wg sync.WaitGroup
-	for _, uaProfileServiceConfig := range uaProfileServiceList {
-		go s.callUaProfileGetTypeInfo(ctx, uaProfileServiceConfig, ch, &wg)
+	for _, cpeProfileServiceConfig := range cpeProfileServiceList {
+		go s.callCpeProfileGetTypeInfo(ctx, cpeProfileServiceConfig, dataCh, stopCh)
 	}
 
-	toReturn := &uaProfileDispatcher.GetUaTypeListResponse{}
-	for range uaProfileServiceList {
+	toReturn := &cpeProfileDispatcher.GetCpeTypeListResponse{}
+	for range cpeProfileServiceList {
 		select {
 		case <-ctx.Done():
 			// incoming request was canceled
 			logger.Warn("Request was terminated. Reason: ", ctx.Err())
-			return nil, uaerrors.RequestTerminated
-		case callRes := <-ch:
+			// notify dataCh sender that we are no long accept results
+			close(stopCh)
+			return nil, cpeErrors.RequestTerminated
+		case callRes := <-dataCh:
 			if callRes.err != nil {
-				logger.Warnf("Error during getting info from service=%s, err=%s", callRes.uaTypeConfig.URL, callRes.err.Error())
+				logger.Warnf("Error during getting info from service=%s, err=%s", callRes.cpeTypeConfig.URL, callRes.err.Error())
 			} else {
-				logger.Debugf("Received response=%v on 'GetUaTypeInfo' request from service=%s", callRes.uaTypeInfo, callRes.uaTypeConfig.URL)
-				toReturn.UaTypeList = append(toReturn.UaTypeList, callRes.uaTypeInfo)
+				logger.Debugf("Received response=%v on 'GetCpeTypeInfo' request from service=%s", callRes.cpeTypeInfo, callRes.cpeTypeConfig.URL)
+				toReturn.CpeTypeList = append(toReturn.CpeTypeList, callRes.cpeTypeInfo)
 			}
 		}
 	}
 
-	if len(toReturn.UaTypeList) == 0 {
+	if len(toReturn.CpeTypeList) == 0 {
 		logger.Warn("UA services are unavailable")
-		return nil, uaerrors.ServiceUnavailable
+		return nil, cpeErrors.ServiceUnavailable
 	}
+	close(stopCh)
 	return toReturn, nil
 }
 
 // -------------------------------------------------------------------------------------
 
-// GetUaProfileMetaInfo interface
-func (s Server) GetUaProfileMetaInfo(ctx context.Context, req *uaProfileDispatcher.GetUaProfileMetaInfoRequest) (*uaProfileDispatcher.GetUaProfileMetaInfoResponse, error) {
+// GetCpeProfileMetaInfo interface
+func (s Server) GetCpeProfileMetaInfo(ctx context.Context, req *cpeProfileDispatcher.GetCpeProfileMetaInfoRequest) (*cpeProfileDispatcher.GetCpeProfileMetaInfoResponse, error) {
 	logger := getLogger(ctx)
 	logger.Infof("Received request=%v", req)
 
-	uaProfileService, ok := s.config.GetUaProfileServiceByID(req.IUaType)
+	cpeProfileService, ok := s.config.GetCpeProfileServiceByID(req.ICpeType)
 	if !ok {
-		logger.Warnf("Service with i_ua_type=%d is not found", req.IUaType)
-		return nil, uaerrors.NoUaType
+		logger.Warnf("Service with i_cpe_type=%d is not found", req.ICpeType)
+		return nil, cpeErrors.NoCpeType
 	}
 
-	client, conn, err := s.createClient(uaProfileService.URL)
+	client, conn, err := s.createClient(cpeProfileService.URL)
 
 	if err != nil {
-		logger.Warnf("Can't create client to service=%s err=%s", uaProfileService.URL, err.Error())
-		return nil, uaerrors.ServiceUnavailable
+		logger.Warnf("Can't create client to service=%s err=%s", cpeProfileService.URL, err.Error())
+		return nil, cpeErrors.ServiceUnavailable
 	}
 	defer conn.Close()
 
@@ -206,36 +220,36 @@ func (s Server) GetUaProfileMetaInfo(ctx context.Context, req *uaProfileDispatch
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	logger.Debug("Sending 'GetUaProfileMetaInfo' request to service=", uaProfileService.URL)
-	resp, err := client.GetUaProfileMetaInfo(ctx, &empty.Empty{})
+	logger.Debug("Sending 'GetCpeProfileMetaInfo' request to service=", cpeProfileService.URL)
+	resp, err := client.GetCpeProfileMetaInfo(ctx, &empty.Empty{})
 
 	if err != nil {
-		logger.Warnf("Error during 'GetUaProfileMetaInfo' request processing from service=%s, err=%s", uaProfileService.URL, err.Error())
-		return nil, uaerrors.Internal
+		logger.Warnf("Error during 'GetCpeProfileMetaInfo' request processing from service=%s, err=%s", cpeProfileService.URL, err.Error())
+		return nil, cpeErrors.Internal
 	}
 
-	return &uaProfileDispatcher.GetUaProfileMetaInfoResponse{
-		UaProfileMetainfo: resp.UaProfileMetainfo,
+	return &cpeProfileDispatcher.GetCpeProfileMetaInfoResponse{
+		CpeProfileMetainfo: resp.CpeProfileMetainfo,
 	}, nil
 }
 
 // -------------------------------------------------------------------------------------
 
-// GenerateUaProfile interface
-func (s Server) GenerateUaProfile(req *uaProfileDispatcher.GenerateUaProfileRequest, stream uaProfileDispatcher.UaProfileDispatcher_GenerateUaProfileServer) error {
+// GenerateCpeProfile interface
+func (s Server) GenerateCpeProfile(req *cpeProfileDispatcher.GenerateCpeProfileRequest, stream cpeProfileDispatcher.CpeProfileDispatcher_GenerateCpeProfileServer) error {
 	logger := getLogger(stream.Context())
-	logger.Infof("Received request=%v", req.Options.UaProfileData)
+	logger.Infof("Received request=%v", req.Options.CpeProfileData)
 
-	uaProfileService, ok := s.config.GetUaProfileServiceByID(req.IUaType)
+	cpeProfileService, ok := s.config.GetCpeProfileServiceByID(req.ICpeType)
 	if !ok {
-		logger.Warnf("Service with i_ua_type=%d is not found", req.IUaType)
-		return uaerrors.NoUaType
+		logger.Warnf("Service with i_cpe_type=%d is not found", req.ICpeType)
+		return cpeErrors.NoCpeType
 	}
 
-	client, conn, err := s.createClient(uaProfileService.URL)
+	client, conn, err := s.createClient(cpeProfileService.URL)
 	if err != nil {
-		logger.Warnf("Can't create client to service=%s err=%s", uaProfileService.URL, err.Error())
-		return uaerrors.ServiceUnavailable
+		logger.Warnf("Can't create client to service=%s err=%s", cpeProfileService.URL, err.Error())
+		return cpeErrors.ServiceUnavailable
 	}
 	defer conn.Close()
 
@@ -243,12 +257,12 @@ func (s Server) GenerateUaProfile(req *uaProfileDispatcher.GenerateUaProfileRequ
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	logger.Debug("Sending 'GenerateUaProfile' request to service=", uaProfileService.URL)
-	clientStream, err := client.GenerateUaProfile(ctx, &uaProfile.GenerateUaProfileRequest{UaProfileData: req.Options.UaProfileData})
+	logger.Debug("Sending 'GenerateCpeProfile' request to service=", cpeProfileService.URL)
+	clientStream, err := client.GenerateCpeProfile(ctx, &cpeProfile.GenerateCpeProfileRequest{CpeProfileData: req.Options.CpeProfileData})
 
 	if err != nil {
-		logger.Warnf("Error during 'GenerateUaProfile' request processing from service=%s, err=%s", uaProfileService.URL, err.Error())
-		return uaerrors.Internal
+		logger.Warnf("Error during 'GenerateCpeProfile' request processing from service=%s, err=%s", cpeProfileService.URL, err.Error())
+		return cpeErrors.Internal
 	}
 
 	ch := make(chan *httpbody.HttpBody, 100)
@@ -275,7 +289,7 @@ func (s Server) GenerateUaProfile(req *uaProfileDispatcher.GenerateUaProfileRequ
 		case <-ctx.Done():
 			// incoming request was canceled
 			logger.Warn("Request was terminated. Reason: ", ctx.Err())
-			return uaerrors.RequestTerminated
+			return cpeErrors.RequestTerminated
 		case httpB, ok := <-ch:
 			if !ok {
 				// no more data to transfer
@@ -283,7 +297,7 @@ func (s Server) GenerateUaProfile(req *uaProfileDispatcher.GenerateUaProfileRequ
 			}
 			if err = stream.Send(httpB); err != nil {
 				logger.Error("Error has appeared during profile transfer, err=", err.Error())
-				return uaerrors.Internal
+				return cpeErrors.Internal
 			}
 		}
 	}

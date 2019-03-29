@@ -1,12 +1,12 @@
 FROM maxkondr/porta-os
 
 LABEL maintainer="PortaOne Inc."
-LABEL summary="Image for UA profile dispatcher"
+LABEL summary="Image for CPE profile dispatcher"
 
 ARG PORTA_GIT_COMMIT=unspecified
 ARG PORTA_GIT_TAG=unspecified
 ARG PORTA_GIT_BRANCH=master
-ARG PORTA_APP_NAME='ba-ua-profile-dispatcher'
+ARG PORTA_APP_NAME='ba-cpe-profile-dispatcher'
 
 ENV PORTA_GIT_TAG=$PORTA_GIT_TAG
 ENV PORTA_GIT_COMMIT=$PORTA_GIT_COMMIT

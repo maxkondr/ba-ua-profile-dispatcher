@@ -11,9 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/maxkondr/ba-proto/uaProfileDispatcher"
+	"github.com/maxkondr/ba-proto/cpeProfileDispatcher"
+	"github.com/maxkondr/ba-ua-profile-dispatcher/cpeconfig"
 	"github.com/maxkondr/ba-ua-profile-dispatcher/server"
-	"github.com/maxkondr/ba-ua-profile-dispatcher/uaconfig"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus"
@@ -30,7 +30,7 @@ import (
 
 var (
 	zipkinCollector zipkintracer.Collector
-	config          uaconfig.UaProfileDispatcherConfig
+	config          cpeConfig.CpeProfileDispatcherConfig
 	configPath      = flag.String("config", "./config.json", "Path to config file")
 	logger          logrus.Entry
 )
@@ -104,8 +104,8 @@ func init() {
 func main() {
 	flag.Parse()
 
-	config = uaconfig.LoadConfiguration(*configPath)
-	uaProfileDispatcherServer := uaProfileDispatcherImpl.NewServer(config)
+	config = cpeConfig.LoadConfiguration(*configPath)
+	cpeProfileDispatcherServer := cpeProfileDispatcherImpl.NewServer(config)
 	stopCh := make(chan bool)
 	defer close(stopCh)
 	// ---------------------------------
@@ -114,11 +114,11 @@ func main() {
 		for {
 			select {
 			case <-time.After(10 * time.Second):
-				newConfig, err := uaconfig.Reconfig(*configPath)
+				newConfig, err := cpeConfig.Reconfig(*configPath)
 				if err == nil && newConfig.MD5 != config.MD5 {
 					logger.Infoln("Applying new config", newConfig)
 					config = newConfig
-					uaProfileDispatcherServer.SetConfig(newConfig)
+					cpeProfileDispatcherServer.SetConfig(newConfig)
 				}
 			case <-stopCh:
 				// need to stop loop
@@ -151,12 +151,12 @@ func main() {
 		),
 	)
 
-	uaProfileDispatcher.RegisterUaProfileDispatcherServer(grpcServer, uaProfileDispatcherServer)
+	cpeProfileDispatcher.RegisterCpeProfileDispatcherServer(grpcServer, cpeProfileDispatcherServer)
 	// start the server
 	logger.Infof("Start listening on port %d", config.ListenPort)
 
-	for _, val := range config.GetUaProfileServiceList() {
-		logger.Info("Using ua service=", val)
+	for _, val := range config.GetCpeProfileServiceList() {
+		logger.Info("Using cpe profile service=", val)
 	}
 
 	go func() {

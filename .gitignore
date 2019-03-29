@@ -10,5 +10,5 @@
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
-ba-ua-profile-dispatcher
+ba-cpe-profile-dispatcher
 main

@@ -1,4 +1,4 @@
-package uaerrors
+package cpeErrors
 
 import (
 	"google.golang.org/grpc/codes"
@@ -6,8 +6,8 @@ import (
 )
 
 var (
-	NoUaTypes          = status.Error(codes.NotFound, "UA types are not found")
-	NoUaType           = status.Error(codes.NotFound, "UA type is not found")
+	NoCpeTypes         = status.Error(codes.NotFound, "CPE types are not found")
+	NoCpeType          = status.Error(codes.NotFound, "CPE type is not found")
 	Internal           = status.Error(codes.Internal, "Internal server error")
 	RequestTerminated  = status.Error(codes.Canceled, "Request was terminated")
 	ServiceUnavailable = status.Error(codes.Unavailable, "Service unavailable")
