@@ -20,4 +20,4 @@ RUN mkdir -p /app
 RUN mkdir -p /etc/porta
 ADD $PORTA_APP_NAME /app/$PORTA_APP_NAME
 EXPOSE 7780
-ENTRYPOINT ["/app/$PORTA_APP_NAME"]
+ENTRYPOINT ["/app/ba-cpe-profile-dispatcher"]

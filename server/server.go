@@ -111,11 +111,17 @@ func (s *Server) SetConfig(newConfig cpeConfig.CpeProfileDispatcherConfig) {
 	s.config = newConfig
 }
 
-func (s Server) createClient(addr string) (cpeProfile.CpeProfileClient, *grpc.ClientConn, error) {
+func (s Server) createClientToService(ctx context.Context, addr string) (cpeProfile.CpeProfileClient, *grpc.ClientConn, error) {
 	conn, err := grpc.Dial(addr, grpcDialOptions...)
 	if err != nil {
 		return nil, nil, err
 	}
+	go func() {
+		<-ctx.Done() // it means the initial request processing is finished
+		if cerr := conn.Close(); cerr != nil {
+			getLogger(ctx).Printf("Failed to close conn to %s: %v", addr, cerr)
+		}
+	}()
 	myC := cpeProfile.NewCpeProfileClient(conn)
 	return myC, conn, nil
 }
@@ -124,7 +130,7 @@ func (s Server) createClient(addr string) (cpeProfile.CpeProfileClient, *grpc.Cl
 func (s Server) callCpeProfileGetTypeInfo(ctx context.Context, cpeTypeConfig cpeConfig.CpeProfileServiceConfig, dataCh chan typeInfoChCb, stopCh chan struct{}) {
 	logger := getLogger(ctx)
 
-	client, conn, err := s.createClient(cpeTypeConfig.URL)
+	client, _, err := s.createClientToService(ctx, cpeTypeConfig.URL)
 
 	if err != nil {
 		logger.Warnf("Can't create client to service=%s, err=%s", cpeTypeConfig.URL, err.Error())
@@ -137,7 +143,7 @@ func (s Server) callCpeProfileGetTypeInfo(ctx context.Context, cpeTypeConfig cpe
 		return
 	}
 
-	defer conn.Close()
+	// defer conn.Close()
 
 	logger.Debug("Sending 'GetCpeTypeInfo' request to service=", cpeTypeConfig.URL)
 	resp, err := client.GetCpeTypeInfo(ctx, &empty.Empty{})
@@ -188,7 +194,7 @@ func (s Server) GetCpeTypeList(ctx context.Context, _ *empty.Empty) (*cpeProfile
 	}
 
 	if len(toReturn.CpeTypeList) == 0 {
-		logger.Warn("UA services are unavailable")
+		logger.Warn("CPE services are unavailable")
 		return nil, cpeErrors.ServiceUnavailable
 	}
 	close(stopCh)
@@ -202,23 +208,23 @@ func (s Server) GetCpeProfileMetaInfo(ctx context.Context, req *cpeProfileDispat
 	logger := getLogger(ctx)
 	logger.Infof("Received request=%v", req)
 
-	cpeProfileService, ok := s.config.GetCpeProfileServiceByID(req.ICpeType)
+	cpeProfileService, ok := s.config.GetCpeProfileServiceByID(req.IUaType)
 	if !ok {
-		logger.Warnf("Service with i_cpe_type=%d is not found", req.ICpeType)
+		logger.Warnf("Service with i_cpe_type=%d is not found", req.IUaType)
 		return nil, cpeErrors.NoCpeType
 	}
 
-	client, conn, err := s.createClient(cpeProfileService.URL)
+	ctx = newRPCMetaDataContext(ctx)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	client, _, err := s.createClientToService(ctx, cpeProfileService.URL)
 
 	if err != nil {
 		logger.Warnf("Can't create client to service=%s err=%s", cpeProfileService.URL, err.Error())
 		return nil, cpeErrors.ServiceUnavailable
 	}
-	defer conn.Close()
-
-	ctx = newRPCMetaDataContext(ctx)
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	// defer conn.Close()
 
 	logger.Debug("Sending 'GetCpeProfileMetaInfo' request to service=", cpeProfileService.URL)
 	resp, err := client.GetCpeProfileMetaInfo(ctx, &empty.Empty{})
@@ -240,22 +246,22 @@ func (s Server) GenerateCpeProfile(req *cpeProfileDispatcher.GenerateCpeProfileR
 	logger := getLogger(stream.Context())
 	logger.Infof("Received request=%v", req.Options.CpeProfileData)
 
-	cpeProfileService, ok := s.config.GetCpeProfileServiceByID(req.ICpeType)
+	cpeProfileService, ok := s.config.GetCpeProfileServiceByID(req.IUaType)
 	if !ok {
-		logger.Warnf("Service with i_cpe_type=%d is not found", req.ICpeType)
+		logger.Warnf("Service with i_cpe_type=%d is not found", req.IUaType)
 		return cpeErrors.NoCpeType
 	}
-
-	client, conn, err := s.createClient(cpeProfileService.URL)
-	if err != nil {
-		logger.Warnf("Can't create client to service=%s err=%s", cpeProfileService.URL, err.Error())
-		return cpeErrors.ServiceUnavailable
-	}
-	defer conn.Close()
 
 	ctx := newRPCMetaDataContext(stream.Context())
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	client, _, err := s.createClientToService(ctx, cpeProfileService.URL)
+	if err != nil {
+		logger.Warnf("Can't create client to service=%s err=%s", cpeProfileService.URL, err.Error())
+		return cpeErrors.ServiceUnavailable
+	}
+	// defer conn.Close()
 
 	logger.Debug("Sending 'GenerateCpeProfile' request to service=", cpeProfileService.URL)
 	clientStream, err := client.GenerateCpeProfile(ctx, &cpeProfile.GenerateCpeProfileRequest{CpeProfileData: req.Options.CpeProfileData})

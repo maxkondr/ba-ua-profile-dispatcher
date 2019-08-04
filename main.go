@@ -113,7 +113,7 @@ func main() {
 	go func() {
 		for {
 			select {
-			case <-time.After(10 * time.Second):
+			case <-time.After(5 * time.Second):
 				newConfig, err := cpeConfig.Reconfig(*configPath)
 				if err == nil && newConfig.MD5 != config.MD5 {
 					logger.Infoln("Applying new config", newConfig)

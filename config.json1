@@ -1,13 +1,13 @@
 {
-    "listen_port" : 7780,
+    "listen_port" : 9800,
     "zipkin":
     {
         "url": "http://zipkin.tracing:9411/api/v1/spans"
     },
     "cpe_profile_services": [
         {
-            "i_cpe_type": 93,
-            "url": "localhost:7787"
+            "i_ua_type": 10001,
+            "url": "localhost:9801"
         }
     ]
 }

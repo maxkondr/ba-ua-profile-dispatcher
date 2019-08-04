@@ -19,11 +19,11 @@ import (
 //     },
 //     "cpe_profile_services": [
 //         {
-//             "i_cpe_type": 1,
+//             "i_ua_type": 1,
 //             "url": "ba-cpe-profile-audio-codes.default:7787"
 //         },
 //         {
-//             "i_cpe_type": 2,
+//             "i_ua_type": 2,
 //             "url": "ba-cpe-profile-htek.default:7788"
 //         }
 //     ]
@@ -31,8 +31,8 @@ import (
 
 // CpeProfileServiceConfig stores particular CPE profile params
 type CpeProfileServiceConfig struct {
-	ICpeType uint32 `json:"i_cpe_type"` // mandatory
-	URL      string `json:"url"`        // mandatory
+	IUaType uint32 `json:"i_ua_type"` // mandatory
+	URL     string `json:"url"`       // mandatory
 }
 
 // CpeProfileDispatcherConfig config
@@ -46,7 +46,7 @@ type CpeProfileDispatcherConfig struct {
 // GetCpeProfileServiceByID return CpeTypeConfig struct if found
 func (c CpeProfileDispatcherConfig) GetCpeProfileServiceByID(id uint32) (CpeProfileServiceConfig, bool) {
 	for _, cpeType := range c.CpeProfileServiceList {
-		if cpeType.ICpeType == id {
+		if cpeType.IUaType == id {
 			return cpeType, true
 		}
 	}
@@ -72,7 +72,7 @@ func validateConfig(c CpeProfileDispatcherConfig) error {
 	}
 
 	for _, cpeProfileServiceConfig := range c.CpeProfileServiceList {
-		if cpeProfileServiceConfig.ICpeType == 0 {
+		if cpeProfileServiceConfig.IUaType == 0 {
 			return fmt.Errorf("mandatory param 'i_cpe_type' for cpe profile(%v) is missed in config", cpeProfileServiceConfig)
 		}
 		if len(cpeProfileServiceConfig.URL) == 0 {
